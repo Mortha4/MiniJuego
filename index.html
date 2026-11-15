@@ -71,6 +71,13 @@ button.ghost:hover{background:#cbd5e1;color:#0a192f;box-shadow:0 6px 22px rgba(2
 .fx{font-size:max(9px,1.45cqw);text-align:left;color:#e0f2fe;padding:.3cqw 0;line-height:1.35}
 .mode{padding:1.5cqw 2.2cqw}
 #bmenu{position:absolute;right:4px;bottom:3px;display:none;z-index:5;font-size:max(9px,1.25cqw);padding:.2cqw 1cqw;letter-spacing:.06em}
+#pauseOv{background-color:rgba(6,13,24,.78);background-image:repeating-linear-gradient(0deg,rgba(34,211,238,.05) 0 1px,transparent 1px 4px);animation:none;z-index:6}
+.pz{width:min(78%,440px);display:flex;flex-direction:column;align-items:stretch;gap:1.5cqw;padding:0 0 2.2cqw;overflow:hidden}
+.pbar{background:#22d3ee;color:#0a192f;font-weight:700;font-size:max(9px,1.3cqw);letter-spacing:.1em;padding:.5cqw 1.6cqw;text-align:left}
+.pz h1,.pz .sub,.pz button{margin-left:2.4cqw;margin-right:2.4cqw}
+.pb{text-align:center;letter-spacing:.1em;padding:1.2cqw 2cqw}
+.pb.on{background:#22d3ee;color:#0a192f;transform:translateY(-2px);box-shadow:0 6px 26px rgba(34,211,238,.65)}
+.pz .small{font-size:max(8px,1.2cqw);color:#64748b}
 </style>
 </head>
 <body>
@@ -99,6 +106,16 @@ button.ghost:hover{background:#cbd5e1;color:#0a192f;box-shadow:0 6px 22px rgba(2
       <label for="pname">Identificación del técnico</label>
       <input id="pname" type="text" maxlength="15" placeholder="Técnico FIUBA" autocomplete="off" spellcheck="false">
       <button id="go">COMENZAR</button>
+    </div>
+  </div>
+  <div class="ov hide" id="pauseOv">
+    <div class="card pz">
+      <div class="pbar">&gt; FIUBA_LAB.SYS // PAUSA</div>
+      <h1 id="pauseT">JUEGO EN PAUSA</h1>
+      <p class="sub">Tiempo detenido · tu partida te espera</p>
+      <button class="pb on" id="pResume">RETOMAR PARTIDA</button>
+      <button class="pb" id="pMenu">VOLVER AL MENÚ PRINCIPAL</button>
+      <p class="sub small">W/S o ↑/↓ elegir · Enter/Espacio confirmar · Esc retomar</p>
     </div>
   </div>
   <div class="ov dim hide" id="over">
@@ -169,7 +186,7 @@ const sfx={
 };
 
 /* ===== Estado ===== */
-let state='menu',G;
+let state='menu',G,paused=false,pIdx=0;
 function reset(){
   G={score:0,fixed:0,level:1,carry:null,t:0,overT:0,warnT:0,shake:0,streak:0,rest:{ram:0,hdd:0,mobo:0},pu:null,puT:rnd(20,25),boost:0,trail:[],trailT:0,workT:0,
      p:{x:400,y:390,r:14,ang:Math.PI/2,step:0,moving:false},
@@ -183,11 +200,19 @@ const keys={};let actPressed=false,dropPressed=false;
 addEventListener('keydown',e=>{
   if(e.target&&e.target.tagName==='INPUT')return; // no interferir al escribir el nombre
   const k=e.key.toLowerCase();
+  if(e.repeat&&(k==='enter'||k==='escape'))return;
+  if(paused){ // menú de pausa: W/S, flechas, Enter/Espacio y Esc
+    if(['arrowup','arrowdown',' '].includes(k))e.preventDefault();
+    if(k==='escape')closePause();
+    else if(['w','arrowup','s','arrowdown'].includes(k)){pIdx=pIdx?0:1;pauseUI();sfx.pick()}
+    else if(k==='enter'||k===' '||k==='e')pIdx?toMenu():closePause();
+    return;
+  }
   if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k))e.preventDefault();
   if(!keys[k]&&(k==='e'||k===' '))actPressed=true;
   if(!keys[k]&&(k==='q'||k==='x'))dropPressed=true;
   keys[k]=true;
-  if(k==='escape'&&['play','qplay','over','qover','sel'].includes(state))toMenu();
+  if(k==='escape'){if(state==='play')openPause();else if(['qplay','over','qover','sel'].includes(state))toMenu()}
   if(state==='sel')selKey(k);
   if(state==='qplay'){if(/^[1-4]$/.test(k))qPick(+k-1);else if(k==='enter'||k===' '||k==='e')qBtnNext()}
   if(k==='enter'){if(state==='menu')openName('lab');else if((state==='over'||state==='qover')&&!$('over').classList.contains('hide'))startCurrent()}
@@ -205,7 +230,7 @@ function levelParams(){
 }
 
 /* ===== Lógica ===== */
-function start(){audio();reset();solids=labSolids;mode='lab';state='play';$('menu').classList.add('hide');$('over').classList.add('hide');$('nameOv').classList.add('hide')}
+function start(){audio();paused=false;$('pauseOv').classList.add('hide');reset();solids=labSolids;mode='lab';state='play';$('menu').classList.add('hide');$('over').classList.add('hide');$('nameOv').classList.add('hide')}
 function openName(m){
   if(state!=='menu')return;mode=m||'lab';state='name';audio();
   document.querySelector('#nameOv label').textContent=mode==='quiz'?'Identificación del jugador':'Identificación del técnico';
@@ -217,7 +242,7 @@ function confirmName(){
   try{localStorage.setItem(NAME_KEY,playerName)}catch(e){}
   afterName();
 }
-function toMenu(){state='menu';mode='lab';solids=labSolids;Q=null;selLock=false;reset();$('over').classList.add('hide');$('nameOv').classList.add('hide');renderMenuRank();$('menu').classList.remove('hide')}
+function toMenu(){paused=false;$('pauseOv').classList.add('hide');state='menu';mode='lab';solids=labSolids;Q=null;selLock=false;reset();$('over').classList.add('hide');$('nameOv').classList.add('hide');renderMenuRank();$('menu').classList.remove('hide')}
 function gameOver(pc){
   state='over';setOverUI('lab');G.overT=0;sfx.over();G.shake=.5;burst(pc.cx,pc.d.y+40,'#555',40,200);burst(pc.cx,pc.d.y+40,'#ffd43b',30,260);
   if(G.score>best){best=G.score;try{localStorage.setItem('pcrr_best',best)}catch(e){}}
@@ -550,8 +575,8 @@ function drawHUD(){
   lab('RÉCORD',728);val(best,728,'#f8fafc',15);
 }
 function drawHint(){
-  ctx.fillStyle='rgba(10,25,47,.82)';ctx.fillRect(W/2-225,H-18,450,16);
-  ctx.fillStyle='#bae6fd';ctx.font='bold 11px '+FONT;ctx.textAlign='center';ctx.fillText('[E/Espacio] Agarrar/Cambiar | Mantener E: Limpiar | [Q/X] Soltar',W/2,H-6);
+  ctx.fillStyle='rgba(10,25,47,.82)';ctx.fillRect(W/2-262,H-18,524,16);
+  ctx.fillStyle='#bae6fd';ctx.font='bold 11px '+FONT;ctx.textAlign='center';ctx.fillText('[E/Espacio] Agarrar | Mantener E: Limpiar | [Q/X] Soltar | [Esc] Pausa',W/2,H-6);
 }
 function draw(){
   ctx.save();
@@ -578,7 +603,7 @@ function drawFx(){
 
 /* ===== MODO 2: Desafío Universitario FIUBA ===== */
 let mode='lab',rankTab='lab',Q=null,qRanking=[],qLast=null,shownB=false;
-const QRANK_KEY='fiuba_cyber_ranking',QASK=15;
+const QRANK_KEY='fiuba_cyber_ranking',LAST_KEY='fiuba_cyber_last',QTOTAL=5;
 try{const r=JSON.parse(localStorage.getItem(QRANK_KEY));if(Array.isArray(r))qRanking=r.filter(e=>e&&typeof e.name==='string'&&Number.isFinite(e.score))}catch(e){}
 qRanking.sort((a,b)=>b.score-a.score);qRanking=qRanking.slice(0,5);
 const qBest=()=>qRanking.length?qRanking[0].score:0;
@@ -590,13 +615,33 @@ let skin=0,selI=0,selLock=false,selT=0;
 try{skin=Math.min(2,Math.max(0,+localStorage.getItem('fiuba_skin')||0))}catch(e){}
 /* [categoría, alerta, [opciones; la 1ª es la correcta], explicación, consejo] */
 const CB=[
-['PHISHING','Llega un mail de "tu banco": "¡Verificá tu cuenta YA!" con un link a bnco-seguro-login.com. ¿Qué hacés?',['No hago clic: entro al sitio oficial tipeando yo la dirección','Hago clic y cargo mis datos rápido','Respondo el mail con mi contraseña','Reenvío el link a mis amigos'],'Es phishing: imita a tu banco para robar claves. Desconfiá de los links y entrá al sitio oficial.','Desconfiá de links: entrá siempre al sitio oficial.'],
+['PHISHING POR MAIL','Llega un mail de “tu banco”: “¡Verificá tu cuenta YA!” con un link a bnco-seguro-login.com. ¿Qué hacés?',['No hago clic: entro al sitio oficial tipeando yo la dirección','Hago clic y cargo mis datos rápido','Respondo el mail con mi contraseña','Reenvío el link a mis amigos'],'Es phishing: imita a tu banco para robar claves. Desconfiá de los links y entrá al sitio oficial.','Desconfiá de links: entrá siempre al sitio oficial.'],
 ['AUTENTICACIÓN EN DOS PASOS','Alguien filtró la contraseña de tu correo. ¿Qué evita que entre a tu cuenta?',['Tener activada la autenticación en dos pasos (2FA)','Que la clave tenga solo 6 letras','Cambiar el fondo de pantalla','Nada: la cuenta ya está perdida'],'Con 2FA, además de la clave hace falta un código o app que solo vos tenés.','Activá 2FA en tu correo y en tu banco.'],
-['CONTRASEÑAS SEGURAS','¿Cuál es la práctica más segura con tus contraseñas?',['Una clave larga y única por cuenta, guardada en un gestor','La misma clave fácil en todas las cuentas','Tu fecha de nacimiento','Un papel pegado en el monitor'],'Si reutilizás claves, una filtración abre todas tus cuentas. Mejor largas, únicas y con gestor.','Usá claves largas y únicas, con un gestor de contraseñas.'],
-['WI-FI PÚBLICA','Estás en un aeropuerto con Wi-Fi abierta, sin contraseña, y debés hacer una transferencia. ¿Qué hacés?',['Uso mis datos móviles o una VPN de confianza','Me conecto y transfiero sin problema','Ingreso mi clave igual, total es gratis','Acepto instalar el "certificado" que pide la red'],'En redes abiertas pueden espiar tu tráfico. Para datos sensibles usá datos móviles o VPN.','En Wi-Fi pública evitá datos sensibles: usá datos móviles o VPN.'],
-['INGENIERÍA SOCIAL Y MALWARE','Mensaje urgente: "¡Tu cuenta será suspendida HOY! Descargá el adjunto". ¿Qué hacés?',['Desconfío, no descargo nada y verifico por el canal oficial','Abro el adjunto rápido para evitar la suspensión','Instalo un programa pirata que lo "arregla"','Paso el link a mis contactos para avisarles'],'La urgencia es un truco de ingeniería social. Los adjuntos y descargas piratas suelen traer malware.','La urgencia es una alerta: verificá antes de actuar.']
+['CONTRASEÑAS Y GESTORES','¿Cuál es la práctica más segura con tus contraseñas?',['Una clave larga y única por cuenta, guardada en un gestor','La misma clave fácil en todas las cuentas','Tu fecha de nacimiento','Un papel pegado en el monitor'],'Si reutilizás claves, una filtración abre todas tus cuentas. Mejor largas, únicas y con gestor.','Usá claves largas y únicas, con un gestor de contraseñas.'],
+['WI-FI PÚBLICA','Estás en un aeropuerto con Wi-Fi abierta, sin contraseña, y debés hacer una transferencia. ¿Qué hacés?',['Uso mis datos móviles o una VPN de confianza','Me conecto y transfiero sin problema','Ingreso mi clave igual, total es gratis','Acepto instalar el “certificado” que pide la red'],'En redes abiertas pueden espiar tu tráfico. Para datos sensibles usá datos móviles o VPN.','En Wi-Fi pública evitá datos sensibles: usá datos móviles o VPN.'],
+['INGENIERÍA SOCIAL Y MALWARE','Mensaje urgente: “¡Tu cuenta será suspendida HOY! Descargá el adjunto”. ¿Qué hacés?',['Desconfío, no descargo nada y verifico por el canal oficial','Abro el adjunto rápido para evitar la suspensión','Instalo un programa pirata que lo “arregla”','Paso el link a mis contactos para avisarles'],'La urgencia es un truco de ingeniería social. Los adjuntos y descargas piratas suelen traer malware.','La urgencia es una alerta: verificá antes de actuar.'],
+['PHISHING POR WHATSAPP','Un número desconocido te escribe: “Soy tu hijo, cambié de celular, transferime plata urgente”. ¿Qué hacés?',['Llamo a mi hijo a su número de siempre antes de transferir','Transfiero rápido, es una emergencia','Le paso mi DNI y mi clave para ayudarlo','Le mando el código que me llegó por SMS'],'Es una estafa muy común: suplantan a un familiar. Verificá por otra vía antes de enviar dinero.','Ante un pedido de dinero por chat, confirmá por otra vía.'],
+['PHISHING POR SMS','Te llega un SMS: “Tu paquete no pudo entregarse, pagá $500 de tasa en este link”. No esperabas ningún envío.',['Lo ignoro y consulto en el sitio oficial del correo o la tienda','Entro al link y pago la tasa','Respondo con los datos de mi tarjeta','Reenvío el SMS a mis contactos'],'Los SMS con links y urgencia (smishing) buscan robar datos de tu tarjeta. Verificá en el sitio oficial.','No toques links de SMS inesperados.'],
+['ENLACES ACORTADOS','Un desconocido te manda un link acortado (bit.ly/xxxx) que promete un premio. ¿Qué es lo más seguro?',['No abrirlo: un link acortado oculta el destino real','Abrirlo: los acortadores siempre son seguros','Abrirlo solo si el premio es grande','Compartirlo para que otros lo prueben'],'Un link acortado esconde a dónde te lleva y puede llevarte a un sitio falso o con malware.','Desconfiá de links acortados que no esperabas.'],
+['ACTUALIZACIONES DE SOFTWARE','Tu celular te avisa que hay una actualización de seguridad pendiente. ¿Qué conviene hacer?',['Instalarla pronto: corrige fallas que los atacantes aprovechan','Ignorarla para siempre, total anda bien','Desactivar las actualizaciones automáticas','Descargarla desde un sitio pirata'],'Las actualizaciones tapan vulnerabilidades conocidas. Postergarlas deja la puerta abierta.','Mantené el sistema y las apps siempre actualizados.'],
+['PERMISOS DE APPS','Una app de linterna te pide acceso a tus contactos, micrófono y ubicación. ¿Qué hacés?',['Niego los permisos que no necesita, o no la instalo','Acepto todo sin leer','Acepto y además le doy mi contraseña','La instalo en todos mis dispositivos'],'Una app solo debería pedir lo que necesita para funcionar. Permisos de más pueden espiar tus datos.','Revisá los permisos: dales solo lo imprescindible.'],
+['QR FALSOS (QUISHING)','En un bar hay un código QR pegado sobre otro para “pagar la cuenta”. ¿Qué es lo más prudente?',['Confirmar con el personal que sea el QR oficial antes de pagar','Escanear y pagar: un QR siempre es seguro','Escanear y desactivar el antivirus','Ingresar mi clave en el sitio que se abra'],'Los estafadores pegan QR falsos sobre los reales (quishing) para llevarte a sitios de robo de datos.','Verificá los QR antes de escanearlos y pagar.'],
+['COPIAS DE SEGURIDAD','Un ransomware cifra tus archivos y pide un rescate. ¿Qué te salva sin tener que pagar?',['Tener copias de seguridad recientes fuera de la computadora','Pagar el rescate enseguida','Apagar el monitor','Tener todos los archivos en el escritorio'],'Con un backup reciente y separado, restaurás tus archivos sin ceder al chantaje.','Hacé copias de seguridad y guardalas fuera de tu equipo.'],
+['CONTRASEÑAS ROBUSTAS','¿Cuál de estas contraseñas es la más robusta?',['Una frase larga con palabras al azar, números y símbolos','123456','El nombre de tu mascota y tu año de nacimiento','qwerty2024'],'Cuanto más larga e impredecible, más difícil de adivinar. Evitá datos personales y patrones comunes.','Mejor una frase larga e impredecible que una clave corta.'],
+['LLAMADA FALSA DEL BANCO','Te llaman del “soporte de tu banco” y te piden el código que te llegó por SMS. ¿Qué hacés?',['Corto y llamo yo al número oficial del banco','Les doy el código para frenar el fraude','Les digo mi clave: son del banco','Les paso los datos de mi tarjeta para verificar'],'Ningún banco te pide claves ni códigos por teléfono. Es ingeniería social (vishing).','Nunca compartas códigos ni claves por teléfono.'],
+['PENDRIVE DESCONOCIDO','Encontrás un pendrive tirado en el estacionamiento de la facultad. ¿Qué hacés?',['No lo conecto y lo entrego al área de sistemas','Lo conecto para ver de quién es','Lo conecto en la compu del trabajo','Lo formateo y lo uso como propio'],'Los USB abandonados son un truco clásico para infectar equipos con malware.','No conectes dispositivos USB desconocidos.'],
+['ADJUNTOS SOSPECHOSOS','Recibís un mail de un remitente desconocido con un .zip llamado “factura pendiente”. ¿Qué hacés?',['No lo abro y lo marco como spam','Lo abro para ver qué es','Lo descargo y lo ejecuto como administrador','Lo reenvío a mi trabajo'],'Los adjuntos inesperados son una vía común para instalar malware. Ante la duda, no los abras.','No abras adjuntos que no esperabas.'],
+['DESCARGAS PIRATAS','Querés un programa pago gratis y encontrás una versión “crackeada”. ¿Cuál es el riesgo principal?',['Suele traer malware que roba datos o controla tu equipo','Ninguno: es idéntico al original','Solo puede ser más lento','Solo cambia el color de la interfaz'],'Los programas piratas son un vehículo habitual de virus, troyanos y robo de claves.','Descargá software solo de fuentes oficiales.'],
+['PRIVACIDAD EN REDES','¿Por qué es peligroso publicar tu DNI, dirección o fotos de tu tarjeta en redes sociales?',['Pueden usarlos para suplantarte o estafarte','No lo es: nadie los ve','Solo afecta a los famosos','Porque gasta más datos móviles'],'Los delincuentes juntan datos públicos para robar identidades y armar engaños muy creíbles.','Cuidá qué datos personales publicás en redes.'],
+['SITIOS CON CANDADO','Un sitio muestra el candado y empieza con https. ¿Significa que es 100% confiable?',['No: el candado solo cifra la conexión; el sitio igual puede ser falso','Sí, siempre es legítimo','Sí, si tiene muchos colores','Sí, si el propio sitio dice ser seguro'],'El candado protege el viaje de los datos, no garantiza que quien está del otro lado sea honesto.','Mirá bien la dirección: el candado no basta.'],
+['AVISO 2FA NO PEDIDO','Te llega una notificación para aprobar un inicio de sesión que vos NO intentaste. ¿Qué hacés?',['La rechazo y cambio mi contraseña enseguida','La apruebo por las dudas','La ignoro y no hago nada','Le paso el código a quien me escriba'],'Alguien probablemente tiene tu clave. Rechazá el acceso y cambiala de inmediato.','Si aparece un aviso 2FA que no pediste, cambiá tu clave.']
 ];
-const TIPS=CB.map(q=>q[4]);
+/* Fisher-Yates + selección de 5 preguntas; prioriza las que NO salieron en la partida anterior */
+function shuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+function pickQuestions(){
+  let prev=[];try{const r=JSON.parse(localStorage.getItem(LAST_KEY));if(Array.isArray(r))prev=r}catch(e){}
+  const all=shuffle(CB.map((_,i)=>i)),o=all.filter(i=>!prev.includes(i)).concat(all.filter(i=>prev.includes(i))).slice(0,QTOTAL);
+  try{localStorage.setItem(LAST_KEY,JSON.stringify(o))}catch(e){}return o}
 function wrapT(t,w,font){ctx.font=font;const L=[];let l='';for(const x of t.split(' ')){const n=l?l+' '+x:x;if(ctx.measureText(n).width>w&&l){L.push(l);l=x}else l=n}if(l)L.push(l);return L}
 function startCurrent(){mode==='quiz'?qStart():start()}
 function renderMenuRank(){
@@ -607,7 +652,11 @@ function renderMenuRank(){
   b.append(t);
 }
 function setOverUI(m){const q=m==='quiz';$('overT').textContent=q?'Informe de seguridad':'Turno terminado';$('facts').style.display=q?'':'none';$('again').textContent=q?'JUGAR DE NUEVO':'REINICIAR TURNO'}
-function syncBtn(){const s=state==='play'||state==='qplay'||state==='sel';if(s!==shownB){shownB=s;$('bmenu').style.display=s?'block':'none'}}
+function pauseUI(){$('pResume').classList.toggle('on',pIdx===0);$('pMenu').classList.toggle('on',pIdx===1)}
+function openPause(){if(state!=='play'||paused)return;paused=true;pIdx=0;G.shake=0;for(const k in keys)keys[k]=false;actPressed=false;dropPressed=false;pauseUI();$('pauseOv').classList.remove('hide');audio();sfx.pick()}
+function closePause(){if(!paused)return;paused=false;$('pauseOv').classList.add('hide');sfx.step()}
+function syncBtn(){const s=(state==='play'||state==='qplay'||state==='sel')&&!paused;if(s!==shownB){shownB=s;$('bmenu').style.display=s?'block':'none'}
+  const t=state==='play'?'⏸ PAUSA (Esc)':'☰ MENÚ (Esc)';if($('bmenu').textContent!==t)$('bmenu').textContent=t}
 function skinBody(){
   const k=skin,s=SK[k],c=ctx;
   c.fillStyle=s.coat;c.strokeStyle=s.edge;c.lineWidth=1.5;c.beginPath();c.ellipse(0,0,9,14,0,0,6.28);c.fill();c.stroke();
@@ -725,15 +774,15 @@ function selDraw(){
 const QOPT=[0,1,2,3].map(i=>({x:40+(i%2)*370,y:262+((i/2)|0)*80,w:350,h:70,i})),NEXT={x:300,y:440,w:200,h:50};
 function qStart(){
   audio();reset();mode='quiz';state='qplay';
-  Q={score:0,streak:0,ok:0,shield:5,n:0,order:CB.map((_,i)=>i).sort(()=>Math.random()-.5),ph:'ask',qt:QASK,fb:0,hv:-1,miss:[],flash:0,fc:'74,222,128',overT:0,cur:null};
+  Q={score:0,streak:0,ok:0,shield:5,n:0,order:pickQuestions(),ph:'ask',fb:0,hv:-1,miss:[],flash:0,fc:'74,222,128',overT:0,cur:null};
   qNext();['menu','over','nameOv'].forEach(i=>$(i).classList.add('hide'));
 }
 function qNext(){
   const b=CB[Q.order[Q.n]];Q.n++;
-  const idx=[0,1,2,3].sort(()=>Math.random()-.5),opts=idx.map(i=>b[2][i]);
+  const idx=shuffle([0,1,2,3]),opts=idx.map(i=>b[2][i]);
   Q.cur={cat:b[0],opts,cor:idx.indexOf(0),ex:b[3],tip:b[4],picked:-1,hv:-1,
     lines:wrapT(b[1],680,'bold 17px '+FONT),ol:opts.map(o=>wrapT(o,296,'bold 13px '+FONT)),el:wrapT(b[3],690,'bold 14px '+FONT)};
-  Q.ph='ask';Q.qt=QASK;Q.hv=-1;
+  Q.ph='ask';Q.hv=-1;
 }
 function qFail(cx,cy,msg){Q.streak=0;G.streak=0;Q.shield=Math.max(0,Q.shield-1);Q.miss.push(Q.cur.tip);Q.flash=.35;Q.fc='248,113,113';G.shake=.3;sfx.bad();
   burst(cx,cy,['#f87171','#fbbf24'],24,170);float(cx,cy-30,msg,'#f87171')}
@@ -742,11 +791,10 @@ function qPick(i){
   const c=Q.cur,r=QOPT[i],cx=r.x+r.w/2,cy=r.y+r.h/2;
   c.picked=i;Q.ph='fb';Q.fb=0;
   if(i===c.cor){
-    Q.streak++;G.streak=Q.streak;const m=mult(),pts=(100+Math.ceil(50*Q.qt/QASK))*m;Q.score+=pts;Q.ok++;Q.flash=.3;Q.fc='74,222,128';sfx.ok();
+    Q.streak++;G.streak=Q.streak;const m=mult(),pts=100*m;Q.score+=pts;Q.ok++;Q.flash=.3;Q.fc='74,222,128';sfx.ok();
     burst(cx,cy,['#4ade80','#22d3ee','#a7f3d0'],36,230);float(cx,cy-24,'+'+pts+(m>1?' x'+m:'')+' ¡BLOQUEADA!','#4ade80');
   }else qFail(cx,cy,'¡AMENAZA ACTIVA!');
 }
-function qTimeout(){Q.cur.picked=-1;Q.ph='fb';Q.fb=0;qFail(400,300,'¡TIEMPO AGOTADO!')}
 function qBtnNext(){if(Q&&state==='qplay'&&Q.ph==='fb'&&Q.fb>.3){sfx.step();if(Q.n>=5)qEnd();else qNext()}}
 function qEnd(){
   const prev=qBest();state='qover';Q.overT=0;sfx.over();
@@ -755,14 +803,14 @@ function qEnd(){
   setOverUI('quiz');
   $('final').innerHTML='Puntuación final: <b>'+Q.score+'</b><br><b>'+Q.ok+'/5</b> Amenazas Bloqueadas · Récord: <b>'+Math.max(prev,Q.score)+'</b>';
   $('fname').textContent='Jugador: '+playerName;
-  const tips=[...Q.miss,...TIPS.filter(t=>!Q.miss.includes(t))].slice(0,3);
+  const tips=[...Q.miss,...Q.order.map(i=>CB[i][4]).filter(t=>!Q.miss.includes(t))].slice(0,3);
   $('facts').innerHTML='<div class="rt">CONSEJOS RÁPIDOS</div>'+tips.map(t=>'<div class="fx">• '+t+'</div>').join('');
   renderRank($('rankOver'),qLast,qRanking,'RANKING ESCUDO CIBER (TOP 5)');renderMenuRank();
 }
 function qUpdate(dt){
   if(state==='qover'){Q.overT+=dt;if(Q.overT>1.1)$('over').classList.remove('hide');return}
   Q.flash=Math.max(0,Q.flash-dt);
-  if(Q.ph==='ask'){Q.qt-=dt;if(Q.qt<=0)qTimeout()}else Q.fb+=dt;
+  if(Q.ph==='fb')Q.fb+=dt;
 }
 const ptr=e=>{const r=cv.getBoundingClientRect();return[(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height]};
 cv.addEventListener('pointerdown',e=>{
@@ -784,9 +832,9 @@ function qDraw(){
   x.fillStyle='#0a192f';x.font='bold 12px '+FONT;x.textAlign='left';x.fillText('> ALERTA DE SEGURIDAD '+Q.n+'/5 · '+c.cat,52,89);
   if(!fb){
     x.fillStyle='#f8fafc';x.font='bold 17px '+FONT;c.lines.forEach((l,i)=>x.fillText(l,56,126+i*24));
-    const f=Math.max(0,Q.qt/QASK);x.fillStyle='#334155';x.fillRect(56,224,688,8);x.fillStyle=f>.5?'#22d3ee':f>.25?'#fbbf24':'#ef4444';x.fillRect(56,224,688*f,8);
+    x.fillStyle='#7dd3fc';x.font='11px '+FONT;x.fillText('Sin apuro: leé con calma, analizá las opciones y elegí una.',56,232);
   }else{
-    x.fillStyle=bc;x.font='bold 16px '+FONT;x.fillText(ok?'AMENAZA BLOQUEADA':c.picked<0?'TIEMPO AGOTADO':'AMENAZA ACTIVA',56,122);
+    x.fillStyle=bc;x.font='bold 16px '+FONT;x.fillText(ok?'AMENAZA BLOQUEADA':'AMENAZA ACTIVA',56,122);
     x.fillStyle='#fbbf24';x.font='bold 12px '+FONT;x.fillText('Correcta: '+c.opts[c.cor],56,146);
     x.fillStyle='#e0f2fe';x.font='bold 14px '+FONT;c.el.forEach((l,i)=>x.fillText(l,56,176+i*20));
   }
@@ -819,7 +867,7 @@ function qDraw(){
 let last=performance.now();
 function loop(now){
   const dt=Math.min(.05,(now-last)/1000);last=now;
-  update(dt);state==='sel'?selDraw():(Q&&(state==='qplay'||state==='qover'))?qDraw():draw();syncBtn();requestAnimationFrame(loop);
+  if(!paused)update(dt);state==='sel'?selDraw():(Q&&(state==='qplay'||state==='qover'))?qDraw():draw();syncBtn();requestAnimationFrame(loop);
 }
 document.querySelectorAll('.ic').forEach(c=>drawPart(c.getContext('2d'),c.dataset.p,36,24,c.dataset.p==='mobo'?.85:1));
 /* Logo institucional: precarga con onload. Embebido en base64 porque la página publicada
@@ -831,7 +879,9 @@ logoFiuba.src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQQAAAEECAMAAAD51ro
 renderMenuRank();
 $('mLab').onclick=()=>openName('lab');
 $('mQuiz').onclick=()=>openName('quiz');
-$('bmenu').onmousedown=e=>e.preventDefault();$('bmenu').onclick=toMenu;
+$('bmenu').onmousedown=e=>e.preventDefault();$('bmenu').onclick=()=>state==='play'?openPause():toMenu();
+$('pResume').onclick=closePause;$('pMenu').onclick=toMenu;
+$('pResume').onmouseenter=()=>{pIdx=0;pauseUI()};$('pMenu').onmouseenter=()=>{pIdx=1;pauseUI()};
 $('go').onclick=confirmName;
 $('again').onclick=startCurrent;
 $('tomenu').onclick=toMenu;
